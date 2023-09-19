@@ -1,0 +1,14 @@
+{
+	"name": "leclerc-downloader",
+	"version": "1.0",
+	"description": "leclerc downloader",
+	"type": "module",
+	"main": "app.mjs",
+	"bin": "app.mjs",
+	"license": "MIT",
+	"dependencies": {
+		"inquirer": "^9.2.8",
+		"node-fetch": "^3.3.2",
+		"pdfkit": "^0.13.0"
+	}
+}
