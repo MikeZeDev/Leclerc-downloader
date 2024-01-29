@@ -1,5 +1,4 @@
-import os from 'os';
-import fs from 'fs';
+Ôªøimport fs from 'fs';
 import inquirer from 'inquirer';
 import path from 'path';
 import fetch from 'node-fetch';
@@ -10,9 +9,8 @@ main().catch(err => console.log(err.message, err.stack)).finally(() => {
     console.log('end');
 });
 
-
 async function main() {
-    //1 : RÈcupËre la liste des prospectus
+    //1 : R√©cup√®re la liste des prospectus
     const prospectusList = await getProspectusList();
 
     //2 : Choix du prospectus par l'utilisateur
@@ -22,13 +20,20 @@ async function main() {
     const choosenStore = await selectStore();
     const storeId = choosenStore.properties.user_properties.signCode;
 
-    //4 : RÈcupÈration de la liste des pages du prospectus pour le magasin
+    //3bis : V√©rifie si le prospectus est dispo pour le mangasin s√©lectionn√©.
+    const ListeStores = await getStores(prospectus.id);
+    if (!ListeStores.includes(storeId)) {
+        console.log('Prospectus non disponible pour le magasin s√©lectionn√© !');
+        return;
+    }
+
+    //4 : R√©cup√©ration de la liste des pages du prospectus pour le magasin
     const prospectusPages = await getProspectusPagesList(prospectus.id, storeId);
 
-    //5 : TÈlÈchargement des pages
+    //5 : T√©l√©chargement des pages
     const pages = await saveProspectus(prospectus, prospectusPages);
 
-    //6 : RÈcupËre les dimensions des images pour faire le pdf ( On consiËdre que ce sont tous des JPG aux memes dimensions)
+    //6 : R√©cup√®re les dimensions des images pour faire le pdf ( On consi√®dre que ce sont tous des JPG aux memes dimensions)
     const pdfsize = await getImageDimensions(pages[0]);
 
     //calcule le nom du pdf
@@ -36,7 +41,7 @@ async function main() {
     const pdfname = prospectustitle+'.pdf';
     const pdfpath = path.resolve('.', pdfname );
 
-    //7: crÈe le PDF
+    //7: cr√©e le PDF
     await saveChapterPagesPDF(pdfpath, pages, pdfsize);
 
     //8 : TODO Supression des images?
@@ -47,7 +52,7 @@ async function main() {
 }
 
 /**
- * RÈcupËre la liste des prospectus actuels (uniquement pour les HypermarchÈs)
+ * R√©cup√®re la liste des prospectus actuels (uniquement pour les Hypermarch√©s)
  * @returns un tableau de prospectus {id, title, start, end}
  */
 async function getProspectusList() {
@@ -60,7 +65,7 @@ async function getProspectusList() {
     jsonobj.items.map(element => result.push({
         id: element.code,
         title: element.title,
-        start: element.startDate, //date de dÈbut au format ISO
+        start: element.startDate, //date de d√©but au format ISO
         end: element.endDate //date de fin au format ISO
     }));
     return result;
@@ -68,8 +73,8 @@ async function getProspectusList() {
 }
 
 /**
- * Formate la date au format local pour une meilleure prÈsentation
- * @param {any} dateStr - la date, au format YYYY-MM-DD
+ * Formate la date au format local pour une meilleure pr√©sentation
+ * @param {string} dateStr - la date, au format YYYY-MM-DD
  * @returns
  */
 function formatDate(dateStr) {
@@ -99,11 +104,11 @@ async function selectProspectus(prospectusList) {
 
 
 /**
- * Laisse l'utilisateur sÈlectionner le bon magasin
+ * Laisse l'utilisateur s√©lectionner le bon magasin
  * @returns 
  */
 async function selectStore() {
-    //1 : Demande de saisir le code postal pour la requÍte de localisation
+    //1 : Demande de saisir le code postal pour la requ√™te de localisation
     let prompt = await inquirer.prompt([
         {
             type: 'input',
@@ -132,7 +137,7 @@ async function selectStore() {
     ]);
     const maplocation = prompt.maplocation;
 
-    //3 RÈcupÈre les coordonnÈes GPS de la localisation
+    //3 R√©cup√©re les coordonn√©es GPS de la localisation
     url = `https://api.woosmap.com/localities/details/?key=woos-6256d36f-af9b-3b64-a84f-22b2342121ba&origin=jswidget2.0&public_id=${maplocation.public_id}`;
     response = await fetch(url, {
         'referrer': 'https://www.e.leclerc/',
@@ -144,7 +149,7 @@ async function selectStore() {
         lng: data.result.geometry.location.lng,
     };
 
-    // 4 RÈcupÈre la liste des magasins proches des coordonnÈes GPS et laisse l'utilisateur choisir
+    // 4 R√©cup√©re la liste des magasins proches des coordonn√©es GPS et laisse l'utilisateur choisir
     url = `https://api.woosmap.com/stores/search?key=woos-6256d36f-af9b-3b64-a84f-22b2342121ba&lat=${gpsData.lat}&lng=${gpsData.lng}&stores_by_page=5&limit=5&page=1&query=user.type%3A%3D%22pdv%22%20AND%20(user.commercialActivity.activityCode%3A%3D%22101%22%20OR%20user.commercialActivity.activityCode%3A%3D%22102%22)`;
     response = await fetch(url, {
         'referrer': 'https://www.e.leclerc/',
@@ -164,16 +169,30 @@ async function selectStore() {
 
     return prompt.store;
 }
+/**
+ * R√©cup√®re la liste des magasins pour lesquels le prospectus s√©lectionn√© est disponible
+ * @param {any} prospectusid - ID du prospectus
+ * @returns un tableau de string avec les id des magasins
+ */
+async function getStores(prospectusid) {
+    const result = [];
+    const url = `https://www.e.leclerc/api/rest/elpev-api/stores-by-operation-code/${prospectusid}`
+    const response = await fetch(url, {
+        'referrer': 'https://www.e.leclerc/',
+    });
+    const jsonobj = await response.json();
+    return jsonobj.availableStores;
+}
 
 
 /**
- * RÈcupËre la liste des pages (images JPG) du prospectus pour le magasin
+ * R√©cup√®re la liste des pages (images JPG) du prospectus pour le magasin
  * @param {any} prospectusid - ID du prospectus
  * @param {any} storeId - ID du magasin
  * @returns
  */
 async function getProspectusPagesList(prospectusid, storeId) {
-    //rÈcupËre le UUID du prospectus
+    //r√©cup√®re le UUID du prospectus
     let url = `https://nos-catalogues-promos-v2-api.e.leclerc/${prospectusid}/${storeId}`;
     let response = await fetch(url, {
         'referrer': 'https://nos-catalogues-promos-v2.e.leclerc',
@@ -181,7 +200,7 @@ async function getProspectusPagesList(prospectusid, storeId) {
     let jsonobj = await response.json();
     const documentUid = jsonobj.documentUid;
 
-    //rÈcupËre la liste des pages
+    //r√©cup√®re la liste des pages
     url = `https://nos-catalogues-promos-v2-api.e.leclerc/document/${documentUid}/pages`;
     response = await fetch(url, {
         'referrer': 'https://nos-catalogues-promos-v2.e.leclerc',
@@ -192,7 +211,7 @@ async function getProspectusPagesList(prospectusid, storeId) {
 }
 
 /**
- * TÈlÈcharge les pages du prospectus (wrapper)
+ * T√©l√©charge les pages du prospectus (wrapper)
  * @param {any} prospectus - Objet prospectus 
  * @param {any} prospectusPages - liste des pages
  * @returns
@@ -207,7 +226,7 @@ async function saveProspectus(prospectus, prospectusPages) {
 }
 
 /**
- * TÈlÈcharge les pages du prospectus. Renvoie la liste ordonnÈe des fichiers tÈlÈchargÈs (chemins locaux sur le disque)
+ * T√©l√©charge les pages du prospectus. Renvoie la liste ordonn√©e des fichiers t√©l√©charg√©s (chemins locaux sur le disque)
  * @param {any} prospectusPages - liste des pages
  * @param {any} dist - Dossier de destination
  * @param {any} progress - callback indicateur de progression
@@ -233,7 +252,7 @@ async function saveProspectusImages(prospectusPages, dist, progress) {
 }
 
 /**
- * TÈlÈcharge le fichier @url et renvoie un buffer
+ * T√©l√©charge le fichier @url et renvoie un buffer
  * @param {any} url - lien du fichier
  * @returns
  */
@@ -251,7 +270,7 @@ async function downloadImage(url) {
 }
 
 /**
- * Enregistre le buffer @data danbs le fichier @path (prÈalablement sanitisÈ)
+ * Enregistre le buffer @data danbs le fichier @path (pr√©alablement sanitis√©)
  * @param {any} data
  * @param {any} path
  */
@@ -262,15 +281,20 @@ function saveImage(data, path) {
 
 
 function sanatizePath(path) {
-    const platform = os.platform();
-    if (platform.indexOf('win') === 0) {
-        path = path.replace(/[\\/:*?"<>|\r\n\t]/g, '');
+    //replace C0 && C1 control codes
+    path = path.replace(/[\u0000-\u001F\u007F-\u009F]/gu, '');
+
+    if (this.platform.indexOf('win') === 0) {
+        // TODO: max. 260 characters per path
+        path = path.replace(/[\\/:*?"<>|]/g, '');
     }
-    if (platform.indexOf('linux') === 0) {
-        path = path.replace(/[/\r\n\t]/g, '');
+    if (this.platform.indexOf('linux') === 0) {
+        path = path.replace(/[/]/g, '');
     }
-    if (platform.indexOf('darwin') === 0) {
-        path = path.replace(/[/:\r\n\t]/g, '');
+
+    if (this.platform.indexOf('darwin') === 0) {
+        // TODO: max. 32 chars per part
+        path = path.replace(/[/:]/g, '');
     }
     return path.replace(/[.\s]+$/g, '').trim();
 }
