@@ -1,3 +1,2 @@
-
-*.sqlite
-*.vsidx
+.vs/
+node_modules/
