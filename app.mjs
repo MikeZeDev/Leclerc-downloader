@@ -284,15 +284,15 @@ function sanatizePath(path) {
     //replace C0 && C1 control codes
     path = path.replace(/[\u0000-\u001F\u007F-\u009F]/gu, '');
 
-    if (this.platform.indexOf('win') === 0) {
+    if (process.platform.indexOf('win32') === 0) {
         // TODO: max. 260 characters per path
         path = path.replace(/[\\/:*?"<>|]/g, '');
     }
-    if (this.platform.indexOf('linux') === 0) {
+    if (process.platform.indexOf('linux') === 0) {
         path = path.replace(/[/]/g, '');
     }
 
-    if (this.platform.indexOf('darwin') === 0) {
+    if (process.platform.indexOf('darwin') === 0) {
         // TODO: max. 32 chars per part
         path = path.replace(/[/:]/g, '');
     }
