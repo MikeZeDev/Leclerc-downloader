@@ -4,6 +4,7 @@ import path from 'path';
 import fetch from 'node-fetch';
 import { createRequire } from "module";
 import { calculate } from "./lib/jpg.mjs";
+import pLimit from 'p-Limit';
 
 main().catch(err => console.log(err.message, err.stack)).finally(() => {
     console.log('end');
@@ -33,21 +34,20 @@ async function main() {
     //5 : Téléchargement des pages
     const pages = await saveProspectus(prospectus, prospectusPages);
 
-    //6 : Récupère les dimensions des images pour faire le pdf ( On consièdre que ce sont tous des JPG aux memes dimensions)
+    //6 : Récupère les dimensions des images pour faire le pdf ( On considère que ce sont tous des JPG aux memes dimensions)
     const pdfsize = await getImageDimensions(pages[0]);
 
     //calcule le nom du pdf
     const prospectustitle = sanatizePath(prospectus.title);
-    const pdfname = prospectustitle+'.pdf';
-    const pdfpath = path.resolve('.', pdfname );
+    const pdfname = prospectustitle + '.pdf';
+    const pdfpath = path.resolve('.', pdfname);
 
     //7: crée le PDF
-    await saveChapterPagesPDF(pdfpath, pages, pdfsize);
+    await savePDF(pdfpath, pages, pdfsize);
 
-    //8 : TODO Supression des images?
+    //8 : Supression des images
     const pathToClean = path.dirname(pages[0]);
     fs.rmSync(pathToClean, { recursive: true, force: true });
-
 
 }
 
@@ -56,6 +56,7 @@ async function main() {
  * @returns un tableau de prospectus {id, title, start, end}
  */
 async function getProspectusList() {
+
     const result = [];
     const url = 'https://www.e.leclerc/api/rest/elpev-api/list?filters=%7B%22type%22:%7B%22value%22:%2201%22%7D,%22storePanonceauCode%22:%7B%22value%22:null%7D%7D&page=1&size=20';
     const response = await fetch(url, {
@@ -71,6 +72,7 @@ async function getProspectusList() {
     return result;
 
 }
+
 
 /**
  * Formate la date au format local pour une meilleure présentation
@@ -211,75 +213,46 @@ async function getProspectusPagesList(prospectusid, storeId) {
 }
 
 /**
- * Télécharge les pages du prospectus (wrapper)
- * @param {any} prospectus - Objet prospectus 
- * @param {any} prospectusPages - liste des pages
- * @returns
+ * Télécharge les pages du prospectus
+ * @param {Prospectus} prospectus - Objet prospectus 
+ * @param {Page[]} prospectusPages - liste des pages {source : string, index: number}[]
+ * @returns 
  */
 async function saveProspectus(prospectus, prospectusPages) {
     const prospectustitle = sanatizePath(prospectus.title);
     const dist = path.resolve('.', prospectustitle);
-    const pages = await saveProspectusImages(prospectusPages, dist, (current, imgLen) => {
-        console.log(`\r Saved image ${current}/${imgLen}`);
-    });
-    return pages;
-}
-
-/**
- * Télécharge les pages du prospectus. Renvoie la liste ordonnée des fichiers téléchargés (chemins locaux sur le disque)
- * @param {any} prospectusPages - liste des pages
- * @param {any} dist - Dossier de destination
- * @param {any} progress - callback indicateur de progression
- * @returns 
- */
-async function saveProspectusImages(prospectusPages, dist, progress) {
-    let cnt = 0;
     const pages = [];
     await fs.promises.mkdir(dist, { recursive: true });
 
-    for (let i = 0; i < prospectusPages.length; i++) {
-        const page = prospectusPages[i];
-        const imagePath = path.resolve(dist, `00${page.index}.jpg`);
+    const limit = pLimit(3);
 
-        if (!fs.existsSync(imagePath)) {
-            const bitmap = await downloadImage(page.source);
-            saveImage(bitmap, imagePath);
-        }
-        progress(++cnt, prospectusPages.length);
+    let promises = prospectusPages.map(page => {
+        const imagePath = path.resolve(dist, `00${page.index}.jpg`);
         pages.push(imagePath);
-    }
+        return limit(() => downloadImage(page.source, imagePath));
+    });
+
+    await Promise.all(promises);
     return pages;
 }
 
 /**
- * Télécharge le fichier @url et renvoie un buffer
- * @param {any} url - lien du fichier
+ * Télécharge la ressource {url} dans le fichier {path}
+ * @param {string} url - lien du fichier
+ * @param {string} path - chemin de fichier
  * @returns
  */
-async function downloadImage(url) {
-    let err = null;
-    for (let i = 0; i < 3; i++) {
-        try {
-            const res = await fetch(url);
-            return res.arrayBuffer();
-        } catch (error) {
-            err = error;
-        }
-    }
-    throw err;
-}
-
-/**
- * Enregistre le buffer @data danbs le fichier @path (préalablement sanitisé)
- * @param {any} data
- * @param {any} path
- */
-function saveImage(data, path) {
+async function downloadImage(url, path) {
+    console.log(`\r\n downloading ${url}`);
+    const res = await fetch(url);
     console.log(`\r\n save to ${path}`);
-    fs.writeFileSync(path, new Uint8Array(data));
+    fs.writeFileSync(path, new Uint8Array(await res.arrayBuffer()));
 }
-
-
+/**
+ * Nettoie le chemin de fichier
+ * @param {string} path - chemin de fichier
+ * @returns 
+ */
 function sanatizePath(path) {
     //replace C0 && C1 control codes
     path = path.replace(/[\u0000-\u001F\u007F-\u009F]/gu, '');
@@ -303,18 +276,28 @@ function sanatizePath(path) {
 //PDF
 //************************** */
 
+/**
+ * Récupères les dimensions de l'image
+ * @param {string} page - Chemin du fichier image
+ * @returns
+ */
 async function getImageDimensions(page) {
     const data = fs.readFileSync(page);
     const size = calculate(data);
     return size;
-
 }
 
-async function saveChapterPagesPDF(pdfpath, pages, pdfsize) {
+/**
+ * Combine les images dans un PDF
+ * @param {string} pdfpath - Chemin du fichier PDF
+ * @param {string[]} pages - Liste des images
+ * @param pdfsize - Dimensions du PDF ({height : number, width : number})
+ * @returns
+ */
+async function savePDF(pdfpath, pages, pdfsize) {
     console.log('\r Saving pdf...');
     const require = createRequire(import.meta.url);
     const PDFDocument = require('pdfkit');
-   
 
     const doc = new PDFDocument({ autoFirstPage: false });
     doc.pipe(fs.createWriteStream(pdfpath));
@@ -324,9 +307,16 @@ async function saveChapterPagesPDF(pdfpath, pages, pdfsize) {
     doc.end();
 }
 
+/**
+ * Ajoute une image au pdf
+ * @param {PDFDocument} pdfDocument - Le document PDF
+ * @param {string} page - Chemin de l'image
+ * @param pdfsize - Dimensions du PDF ({height : number, width : number})
+ * @returns
+ */
 async function addImageToPDF(pdfDocument, page, pdfsize) {
     pdfDocument.addPage({ size: [pdfsize.width, pdfsize.height] });
-    pdfDocument.image(page,0,0);
+    pdfDocument.image(page, 0, 0);
 }
 
 
