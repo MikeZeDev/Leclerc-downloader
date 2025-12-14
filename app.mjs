@@ -58,16 +58,28 @@ async function main() {
 async function getProspectusList() {
 
     const result = [];
-    const url = 'https://www.e.leclerc/api/rest/elpev-api/list?filters=%7B%22type%22:%7B%22value%22:%2201%22%7D,%22storePanonceauCode%22:%7B%22value%22:null%7D%7D&page=1&size=20';
+    const url = 'https://www.e.leclerc/api/rest/elpev-api/list?filters=%7B%22type%22:%7B%22value%22:%2200%22%7D,%22storePanonceauCode%22:%7B%22value%22:%220100%22%7D%7D&page=1&size=20';
     const response = await fetch(url, {
         'referrer': 'https://www.e.leclerc/',
     });
     const jsonobj = await response.json();
+    /*
+       items : {
+          operation : {
+            code : string
+            title : string
+            startDate : string
+            endDate : string
+          },
+
+       }[]
+
+    */
     jsonobj.items.map(element => result.push({
-        id: element.code,
-        title: element.title,
-        start: element.startDate, //date de début au format ISO
-        end: element.endDate //date de fin au format ISO
+        id: element.operation.code,
+        title: element.operation.title,
+        start: element.operation.startDate, //date de début au format ISO
+        end: element.operation.endDate //date de fin au format ISO
     }));
     return result;
 
